@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TaniAI · Platform AI untuk Petani Indonesia</title>
+    <meta name="description" content="Keputusan lebih cerdas, panen lebih berkualitas. Platform AI smart farming untuk diagnosa tanaman, prediksi cuaca, dan rekomendasi pertanian.">
+    @vite(['resources/css/app.css','resources/js/app.js'])
+</head>
+<body class="bg-white text-ink-900" x-data="{mobile:false}">
+
+<header class="sticky top-0 z-30 bg-white/80 backdrop-blur border-b border-ink-200">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+        <a href="/" class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-brand-gradient grid place-items-center text-white shadow-glow">
+                <i data-lucide="sprout" class="w-5 h-5"></i>
+            </div>
+            <div>
+                <div class="font-extrabold leading-none">TaniAI</div>
+                <div class="text-[11px] text-ink-500 mt-0.5">AI untuk Petani Indonesia</div>
+            </div>
+        </a>
+        <nav class="hidden md:flex items-center gap-7 text-sm font-medium text-ink-600">
+            <a href="#features" class="hover:text-brand-700">Fitur</a>
+            <a href="#analytics" class="hover:text-brand-700">Smart Analytics</a>
+            <a href="#testimoni" class="hover:text-brand-700">Testimoni</a>
+            <a href="#harga" class="hover:text-brand-700">Harga</a>
+        </nav>
+        <div class="flex items-center gap-2">
+            <a href="{{ route('login') }}" class="hidden sm:inline-flex btn-ghost">Masuk</a>
+            <a href="{{ route('register') }}" class="btn-primary">Daftar Gratis</a>
+            <button @click="mobile=!mobile" class="md:hidden p-2 rounded-lg hover:bg-ink-50">
+                <i data-lucide="menu" class="w-5 h-5"></i>
+            </button>
+        </div>
+    </div>
+    <div x-show="mobile" x-cloak class="md:hidden border-t border-ink-200 px-4 py-3 space-y-1 bg-white">
+        <a href="#features" class="sidebar-link">Fitur</a>
+        <a href="#analytics" class="sidebar-link">Smart Analytics</a>
+        <a href="#testimoni" class="sidebar-link">Testimoni</a>
+        <a href="#harga" class="sidebar-link">Harga</a>
+    </div>
+</header>
+
+<!-- HERO -->
+<section class="relative overflow-hidden">
+    <div class="absolute inset-0 -z-10 bg-soft-gradient"></div>
+    <div class="absolute -z-10 top-32 -right-32 w-[500px] h-[500px] rounded-full bg-brand-200/40 blur-3xl"></div>
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 pt-16 pb-20 lg:pt-24 lg:pb-28 grid lg:grid-cols-2 gap-12 items-center">
+        <div>
+            <span class="badge-green"><i data-lucide="sparkles" class="w-3 h-3"></i> AI Smart Farming 2026</span>
+            <h1 class="mt-5 text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-tight">
+                Solusi Cerdas untuk
+                <span class="text-brand-600">Petani Indonesia</span>
+            </h1>
+            <p class="mt-5 text-lg text-ink-600 max-w-xl">
+                Dapatkan diagnosa penyakit tanaman, prediksi cuaca, harga pasar terbaru,
+                dan rekomendasi terbaik berbasis AI yang mudah digunakan.
+            </p>
+            <div class="mt-7 flex flex-wrap gap-3">
+                <a href="{{ route('register') }}" class="btn-primary px-6 py-3">
+                    <i data-lucide="message-circle" class="w-4 h-4"></i> Tanya AI Sekarang
+                </a>
+                <a href="#features" class="btn-outline px-6 py-3">Lihat Fitur</a>
+            </div>
+            <div class="mt-8 flex items-center gap-6 text-sm text-ink-500">
+                <div class="flex -space-x-2">
+                    @foreach(['B','S','A','D'] as $i)
+                        <div class="w-9 h-9 rounded-full bg-brand-gradient grid place-items-center text-white text-xs font-bold border-2 border-white">{{ $i }}</div>
+                    @endforeach
+                </div>
+                <div><b class="text-ink-800">45.231+</b> petani telah bergabung</div>
+            </div>
+        </div>
+
+        <div class="relative">
+            <div class="card p-6 lg:p-8 shadow-soft">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-brand-100 grid place-items-center"><i data-lucide="scan-line" class="w-5 h-5 text-brand-700"></i></div>
+                        <div>
+                            <div class="text-xs text-ink-500">Hasil Diagnosa AI</div>
+                            <div class="font-bold text-ink-900">Hawar Daun (Blight)</div>
+                        </div>
+                    </div>
+                    <span class="badge-green">92% Yakin</span>
+                </div>
+                <div class="mt-4 h-40 rounded-xl bg-gradient-to-br from-brand-100 to-brand-50 grid place-items-center text-brand-700">
+                    <i data-lucide="leaf" class="w-16 h-16"></i>
+                </div>
+                <div class="mt-4 grid grid-cols-3 gap-3 text-center">
+                    <div class="p-3 rounded-xl bg-ink-50"><div class="text-xs text-ink-500">Risiko</div><div class="font-bold text-red-600">Tinggi</div></div>
+                    <div class="p-3 rounded-xl bg-ink-50"><div class="text-xs text-ink-500">Prediksi Panen</div><div class="font-bold text-brand-700">80%</div></div>
+                    <div class="p-3 rounded-xl bg-ink-50"><div class="text-xs text-ink-500">Aksi</div><div class="font-bold">3</div></div>
+                </div>
+                <div class="mt-4 p-3 rounded-xl border border-brand-200 bg-brand-50 text-sm text-brand-800">
+                    <b>Rekomendasi AI:</b> Gunakan fungisida Propineb 70WP, jaga jarak tanam, perbaiki sirkulasi udara.
+                </div>
+            </div>
+            <div class="hidden md:block absolute -top-6 -left-6 card p-3 px-4 shadow-soft">
+                <div class="flex items-center gap-2 text-xs"><i data-lucide="cloud-rain" class="w-4 h-4 text-blue-500"></i> Prediksi Hujan 7 hari</div>
+            </div>
+            <div class="hidden md:block absolute -bottom-6 -right-6 card p-3 px-4 shadow-soft">
+                <div class="flex items-center gap-2 text-xs"><i data-lucide="trending-up" class="w-4 h-4 text-brand-600"></i> Harga Padi +2.3%</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features" class="py-20 bg-white">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6">
+        <div class="text-center max-w-2xl mx-auto">
+            <span class="badge-green">Fitur Lengkap</span>
+            <h2 class="mt-3 text-3xl sm:text-4xl font-extrabold">Semua yang dibutuhkan petani modern</h2>
+            <p class="mt-3 text-ink-600">Dari diagnosa AI hingga harga pasar, semua dalam satu platform.</p>
+        </div>
+        <div class="mt-12 grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            @php
+                $features = [
+                    ['scan-line','Diagnosa Tanaman','Upload foto daun untuk analisa AI instan.'],
+                    ['cloud-sun','Prediksi Cuaca','Perkiraan 7 hari + peringatan dini.'],
+                    ['line-chart','Harga Pasar','Pantau harga komoditas real-time.'],
+                    ['brain-circuit','Rekomendasi AI','Saran pupuk, irigasi, dan tindakan.'],
+                    ['users','Komunitas Petani','Belajar bersama 45.000+ petani.'],
+                    ['book-open','Panduan Budidaya','Tahapan lengkap dari tanam hingga panen.'],
+                ];
+            @endphp
+            @foreach($features as [$icon,$t,$d])
+                <div class="card p-6 hover:shadow-glow hover:-translate-y-0.5 transition">
+                    <div class="w-12 h-12 rounded-xl bg-brand-100 grid place-items-center text-brand-700">
+                        <i data-lucide="{{ $icon }}" class="w-6 h-6"></i>
+                    </div>
+                    <div class="mt-4 font-bold text-lg">{{ $t }}</div>
+                    <p class="mt-1 text-sm text-ink-600">{{ $d }}</p>
+                </div>
+            @endforeach
+        </div>
+    </div>
+</section>
+
+<!-- ANALYTICS PREVIEW -->
+<section id="analytics" class="py-20 bg-ink-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 grid lg:grid-cols-2 gap-10 items-center">
+        <div>
+            <span class="badge-green">Smart Analytics</span>
+            <h2 class="mt-3 text-3xl sm:text-4xl font-extrabold">Dashboard intelijen pertanian Anda</h2>
+            <p class="mt-3 text-ink-600">Pantau kesehatan tanaman, cuaca, dan harga pasar dari satu layar. Didukung AI yang menganalisis ribuan data setiap detik.</p>
+            <ul class="mt-5 space-y-3 text-sm">
+                @foreach(['Confidence score per diagnosa','Prediksi hasil panen','Faktor penyebab penyakit','Aksi yang direkomendasikan'] as $li)
+                    <li class="flex gap-3"><i data-lucide="check-circle-2" class="w-5 h-5 text-brand-600"></i> {{ $li }}</li>
+                @endforeach
+            </ul>
+        </div>
+        <div class="card p-6">
+            <div class="grid grid-cols-2 gap-4">
+                <div class="p-4 rounded-xl bg-brand-50">
+                    <div class="text-xs text-ink-500">AI Confidence</div>
+                    <div class="text-3xl font-extrabold text-brand-700 mt-1">92%</div>
+                </div>
+                <div class="p-4 rounded-xl bg-brand-50">
+                    <div class="text-xs text-ink-500">Prediksi Panen</div>
+                    <div class="text-3xl font-extrabold text-brand-700 mt-1">80%</div>
+                </div>
+            </div>
+            <div class="mt-4 h-40 rounded-xl bg-gradient-to-tr from-brand-100 to-white grid place-items-center text-ink-500 text-sm">
+                Grafik tren panen
+            </div>
+            <div class="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
+                <div class="p-2 rounded-lg bg-ink-50">Cerah<br><b class="text-ink-900">28°</b></div>
+                <div class="p-2 rounded-lg bg-ink-50">Hujan<br><b class="text-ink-900">24°</b></div>
+                <div class="p-2 rounded-lg bg-ink-50">Petir<br><b class="text-ink-900">22°</b></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- TESTIMONI -->
+<section id="testimoni" class="py-20 bg-white">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6">
+        <div class="text-center max-w-2xl mx-auto">
+            <span class="badge-green">Testimoni</span>
+            <h2 class="mt-3 text-3xl sm:text-4xl font-extrabold">Dipercaya petani di seluruh Indonesia</h2>
+        </div>
+        <div class="mt-12 grid md:grid-cols-3 gap-5">
+            @foreach([['Budi Santoso','Sleman, DIY','Diagnosa cepat dan akurat. Panen padi saya meningkat 15%!'],['Siti Aminah','Garut, Jabar','Rekomendasi pupuknya pas. Cabai saya lebih sehat dari sebelumnya.'],['Ahmad Fauzi','Malang, Jatim','Komunitasnya hidup, banyak ilmu baru tiap hari.']] as [$n,$l,$q])
+                <div class="card p-6">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-full bg-brand-gradient grid place-items-center text-white font-bold">{{ substr($n,0,1) }}</div>
+                        <div>
+                            <div class="font-bold">{{ $n }}</div>
+                            <div class="text-xs text-ink-500">{{ $l }}</div>
+                        </div>
+                    </div>
+                    <p class="mt-4 text-sm text-ink-600">"{{ $q }}"</p>
+                    <div class="mt-3 flex gap-1 text-amber-400">
+                        @for($i=0;$i<5;$i++)<i data-lucide="star" class="w-4 h-4 fill-current"></i>@endfor
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    </div>
+</section>
+
+<!-- PRICING -->
+<section id="harga" class="py-20 bg-ink-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6">
+        <div class="text-center max-w-2xl mx-auto">
+            <span class="badge-green">Paket Harga</span>
+            <h2 class="mt-3 text-3xl sm:text-4xl font-extrabold">Mulai gratis, upgrade kapan saja</h2>
+        </div>
+        <div class="mt-12 grid md:grid-cols-3 gap-5">
+            @php
+                $plans = [
+                    ['Gratis','Rp 0','Akses fitur dasar',[ 'Diagnosa 5x/bulan','Cuaca 3 hari','Komunitas'], false],
+                    ['Petani','Rp 49.000','Untuk petani aktif',[ 'Diagnosa unlimited','Cuaca 7 hari + alert','Rekomendasi AI','Prioritas chat'], true],
+                    ['Bisnis','Rp 199.000','Untuk kelompok tani',[ 'Semua fitur Petani','Multi user 10 akun','Laporan analitik','API access'], false],
+                ];
+            @endphp
+            @foreach($plans as [$name,$price,$desc,$items,$pop])
+                <div class="card p-6 {{ $pop ? 'ring-2 ring-brand-500 shadow-glow' : '' }}">
+                    @if($pop)<span class="badge-green mb-3">Paling Populer</span>@endif
+                    <div class="font-bold text-lg">{{ $name }}</div>
+                    <div class="text-3xl font-extrabold mt-2">{{ $price }}<span class="text-sm font-medium text-ink-500">/bulan</span></div>
+                    <p class="text-sm text-ink-600 mt-1">{{ $desc }}</p>
+                    <ul class="mt-5 space-y-2 text-sm">
+                        @foreach($items as $it)<li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-brand-600"></i>{{ $it }}</li>@endforeach
+                    </ul>
+                    <a href="{{ route('register') }}" class="mt-6 w-full {{ $pop ? 'btn-primary' : 'btn-outline' }}">Pilih {{ $name }}</a>
+                </div>
+            @endforeach
+        </div>
+    </div>
+</section>
+
+<!-- CTA -->
+<section class="py-20">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6">
+        <div class="rounded-3xl bg-brand-gradient text-white p-10 lg:p-16 text-center shadow-glow">
+            <h2 class="text-3xl sm:text-4xl font-extrabold">Siap memulai pertanian cerdas?</h2>
+            <p class="mt-3 text-white/90">Bergabung dengan 45.000+ petani Indonesia yang sudah memanen lebih cerdas bersama TaniAI.</p>
+            <div class="mt-7 flex flex-wrap justify-center gap-3">
+                <a href="{{ route('register') }}" class="btn bg-white text-brand-700 hover:bg-ink-50 px-6 py-3 font-bold">Daftar Gratis</a>
+                <a href="{{ route('login') }}" class="btn border border-white/40 text-white hover:bg-white/10 px-6 py-3">Masuk</a>
+            </div>
+        </div>
+    </div>
+</section>
+
+<footer class="border-t border-ink-200 py-10">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 grid md:grid-cols-4 gap-8 text-sm">
+        <div>
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-brand-gradient grid place-items-center text-white"><i data-lucide="sprout" class="w-4 h-4"></i></div>
+                <div class="font-extrabold">TaniAI</div>
+            </div>
+            <p class="mt-3 text-ink-500">Platform AI smart farming untuk petani Indonesia.</p>
+        </div>
+        <div>
+            <div class="font-bold mb-3">Produk</div>
+            <ul class="space-y-2 text-ink-500">
+                <li>Diagnosa AI</li><li>Cuaca</li><li>Harga Pasar</li><li>Komunitas</li>
+            </ul>
+        </div>
+        <div>
+            <div class="font-bold mb-3">Perusahaan</div>
+            <ul class="space-y-2 text-ink-500"><li>Tentang</li><li>Karier</li><li>Kontak</li></ul>
+        </div>
+        <div>
+            <div class="font-bold mb-3">Legal</div>
+            <ul class="space-y-2 text-ink-500"><li>Privasi</li><li>Ketentuan</li></ul>
+        </div>
+    </div>
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 mt-8 text-xs text-ink-500 text-center">© {{ date('Y') }} TaniAI. Semua hak dilindungi.</div>
+</footer>
+
+</body>
+</html>

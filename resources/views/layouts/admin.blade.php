@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>@yield('title','Admin') · TaniAI</title>
+    @vite(['resources/css/app.css','resources/js/app.js'])
+</head>
+<body class="min-h-screen bg-ink-50" x-data>
+<div class="flex min-h-screen">
+    @include('partials.admin-sidebar')
+    <div class="flex-1 flex flex-col min-w-0">
+        @include('partials.topbar', ['admin' => true])
+        <main class="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+            @if(session('status'))
+                <div class="mb-4 p-3 rounded-xl bg-brand-50 text-brand-700 border border-brand-200 text-sm">{{ session('status') }}</div>
+            @endif
+            @yield('content')
+        </main>
+    </div>
+</div>
+</body>
+</html>
