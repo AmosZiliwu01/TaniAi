@@ -9,7 +9,11 @@ class RecommendationController extends Controller
 {
     public function index()
     {
-        $items = Recommendation::where('user_id', Auth::id())->latest()->get();
+        try {
+            $items = Recommendation::where('user_id', Auth::id())->latest()->get();
+        } catch (\Throwable $e) {
+            $items = collect();
+        }
         return view('recommendations.index', compact('items'));
     }
 }

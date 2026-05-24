@@ -8,9 +8,7 @@
     @vite(['resources/css/app.css','resources/js/app.js'])
 </head>
 <body class="bg-white text-ink-900" x-data="{mobile:false}">
-<div class="bg-red-500 text-white p-4">
-    TEST TAILWIND
-</div>
+
 <header class="sticky top-0 z-30 bg-white/80 backdrop-blur border-b border-ink-200">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
         <a href="/" class="flex items-center gap-3">
@@ -277,4 +275,8 @@
 </footer>
 
 </body>
+
+<script>
+    window.stop();
+</script>
 </html>

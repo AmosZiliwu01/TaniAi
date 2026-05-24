@@ -89,9 +89,7 @@
                         $region   = $p instanceof \App\Models\MarketPrice ? $p->region : ($p['region'] ?? '-');
                         $comm     = $p instanceof \App\Models\MarketPrice ? $p->commodity : ($p['commodity'] ?? '-');
                         $change   = $p instanceof \App\Models\MarketPrice ? $p->change_percent : ($p['change_percent'] ?? 0);
-                        $updated  = $p instanceof \App\Models\MarketPrice && $p->recorded_at
-                            ? \Carbon\Carbon::parse($p->recorded_at)->diffForHumans()
-                            : 'Hari ini';
+                        $updated  = $p instanceof \App\Models\MarketPrice && $p->recorded_at ? $p->recorded_at->diffForHumans() : 'Hari ini';
                     @endphp
                     <tr class="hover:bg-ink-50">
                         <td class="py-3 pr-4 font-semibold">{{ $comm }}</td>

@@ -17,22 +17,23 @@ class RecordController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'crop' => 'required|string',
-            'field_name' => 'required|string',
-            'area' => 'nullable|numeric',
+            'crop'          => 'required|string|max:100',
+            'field_name'    => 'required|string|max:255',
+            'area'          => 'nullable|numeric|min:0|max:99999',
             'planting_date' => 'nullable|date',
-            'status' => 'required|string',
-            'notes' => 'nullable|string',
+            'status'        => 'required|string|max:100',
+            'notes'         => 'nullable|string|max:2000',
         ]);
+
         $data['user_id'] = Auth::id();
         CropRecord::create($data);
-        return back()->with('status','Catatan lahan ditambahkan.');
+        return back()->with('status', 'Catatan lahan berhasil ditambahkan.');
     }
 
     public function destroy(CropRecord $record)
     {
         abort_unless($record->user_id === Auth::id(), 403);
         $record->delete();
-        return back();
+        return back()->with('status', 'Catatan dihapus.');
     }
 }

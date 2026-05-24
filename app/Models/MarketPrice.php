@@ -10,4 +10,8 @@ class MarketPrice extends Model
     use HasFactory;
     protected $table = 'market_prices';
     protected $guarded = ['id'];
+
+    protected $casts = [
+        'recorded_at' => 'datetime',
+    ];
 }
