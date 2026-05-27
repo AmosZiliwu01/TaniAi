@@ -2,16 +2,15 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class MarketPrice extends Model
 {
-    use HasFactory;
-    protected $table = 'market_prices';
     protected $guarded = ['id'];
 
     protected $casts = [
-        'recorded_at' => 'datetime',
+        'price'          => 'float',
+        'change_percent' => 'float',
+        'recorded_at'    => 'datetime',
     ];
 }

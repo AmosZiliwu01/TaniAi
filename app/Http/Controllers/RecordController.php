@@ -17,14 +17,13 @@ class RecordController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'crop'          => 'required|string|max:100',
-            'field_name'    => 'required|string|max:255',
-            'area'          => 'nullable|numeric|min:0|max:99999',
-            'planting_date' => 'nullable|date',
-            'status'        => 'required|string|max:100',
-            'notes'         => 'nullable|string|max:2000',
+            'crop'           => 'required|string|max:100',
+            'field_name'     => 'required|string|max:255',
+            'area'           => 'nullable|numeric|min:0|max:9999',
+            'planting_date'  => 'nullable|date|before_or_equal:today',
+            'status'         => 'required|string|max:100',
+            'notes'          => 'nullable|string|max:2000',
         ]);
-
         $data['user_id'] = Auth::id();
         CropRecord::create($data);
         return back()->with('status', 'Catatan lahan berhasil ditambahkan.');

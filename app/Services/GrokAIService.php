@@ -4,11 +4,8 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 
-/**
- * GrokAIService - integration dengan xAI Grok API.
- * Mendukung diagnosa gambar, chat konsisten, dan validasi gambar tanaman.
- */
 class GrokAIService
 {
     protected ?string $apiKey;
@@ -22,250 +19,221 @@ class GrokAIService
         $this->model  = env('GROK_MODEL', 'grok-beta');
     }
 
-    public function isLive(): bool
-    {
-        return !empty($this->apiKey);
-    }
+    public function isLive(): bool { return !empty($this->apiKey); }
 
-    /**
-     * General chat completion - konsisten menjawab pertanyaan.
-     */
+    // ── CHAT ──────────────────────────────────────────────────────────────────
     public function chat(array $messages, array $opts = []): string
     {
-        if (!$this->isLive()) {
-            return $this->mockChat($messages);
-        }
+        if (!$this->isLive()) return $this->mockChat($messages);
 
         try {
-            $response = Http::withToken($this->apiKey)
+            $res = Http::withToken($this->apiKey)
                 ->timeout(30)
                 ->post($this->apiUrl, [
                     'model'       => $this->model,
                     'messages'    => $messages,
-                    'temperature' => $opts['temperature'] ?? 0.7,
-                    'max_tokens'  => 1000,
+                    'temperature' => $opts['temperature'] ?? 0.4,
+                    'max_tokens'  => 1024,
                 ]);
 
-            if ($response->successful()) {
-                $content = $response->json('choices.0.message.content');
-                if (!empty($content)) {
-                    return $content;
-                }
+            if ($res->successful()) {
+                $content = $res->json('choices.0.message.content');
+                if (!empty($content)) return trim($content);
             }
-            Log::warning('Grok API error', ['status' => $response->status(), 'body' => $response->body()]);
+            Log::warning('Grok chat error', ['status' => $res->status()]);
         } catch (\Throwable $e) {
-            Log::error('Grok API exception', ['error' => $e->getMessage()]);
+            Log::error('Grok chat exception', ['msg' => $e->getMessage()]);
         }
         return $this->mockChat($messages);
     }
 
-    /**
-     * Validasi apakah gambar merupakan gambar tanaman.
-     * Return: ['is_plant' => bool, 'reason' => string]
-     */
+    // ── IMAGE VALIDATION ──────────────────────────────────────────────────────
     public function validatePlantImage(string $base64Image, string $mimeType = 'image/jpeg'): array
     {
-        if (!$this->isLive()) {
-            // Jika tidak ada API, asumsikan valid (tidak bisa cek)
-            return ['is_plant' => true, 'reason' => ''];
-        }
+        if (!$this->isLive()) return ['is_plant' => true, 'reason' => ''];
+
+        // Cache result by image hash (avoid duplicate API calls)
+        $hash   = md5(substr($base64Image, 0, 500));
+        $cached = Cache::get("img_val_{$hash}");
+        if ($cached !== null) return $cached;
 
         try {
-            $response = Http::withToken($this->apiKey)
-                ->timeout(30)
-                ->post($this->apiUrl, [
-                    'model' => $this->model,
-                    'messages' => [
-                        [
-                            'role' => 'user',
-                            'content' => [
-                                [
-                                    'type' => 'image_url',
-                                    'image_url' => [
-                                        'url' => "data:{$mimeType};base64,{$base64Image}",
-                                    ],
-                                ],
-                                [
-                                    'type' => 'text',
-                                    'text' => 'Apakah gambar ini menampilkan tanaman, daun, batang, buah tanaman, atau bagian dari tanaman? Jawab HANYA dengan format JSON: {"is_plant": true/false, "reason": "penjelasan singkat"}. Jangan tambahkan teks lain.',
-                                ],
-                            ],
-                        ],
+            $res = Http::withToken($this->apiKey)->timeout(20)->post($this->apiUrl, [
+                'model'       => $this->model,
+                'max_tokens'  => 80,
+                'temperature' => 0.1,
+                'messages'    => [[
+                    'role'    => 'user',
+                    'content' => [
+                        ['type' => 'image_url', 'image_url' => ['url' => "data:{$mimeType};base64,{$base64Image}"]],
+                        ['type' => 'text', 'text' => 'Is this a plant, leaf, stem, root, fruit, or any plant part? Reply ONLY JSON: {"is_plant":true,"reason":"..."} or {"is_plant":false,"reason":"..."}'],
                     ],
-                    'max_tokens' => 100,
-                    'temperature' => 0.1,
-                ]);
+                ]],
+            ]);
 
-            if ($response->successful()) {
-                $content = $response->json('choices.0.message.content');
-                if ($content) {
-                    $clean = preg_replace('/```json|```/', '', $content);
-                    $parsed = json_decode(trim($clean), true);
-                    if (is_array($parsed) && isset($parsed['is_plant'])) {
-                        return $parsed;
-                    }
+            if ($res->successful()) {
+                $raw    = $res->json('choices.0.message.content', '');
+                $clean  = trim(preg_replace('/```json|```/', '', $raw));
+                $parsed = json_decode($clean, true);
+                if (is_array($parsed) && array_key_exists('is_plant', $parsed)) {
+                    Cache::put("img_val_{$hash}", $parsed, 3600);
+                    return $parsed;
                 }
             }
         } catch (\Throwable $e) {
-            Log::error('Grok image validation error', ['error' => $e->getMessage()]);
+            Log::error('Plant validate error', ['msg' => $e->getMessage()]);
         }
 
-        // Default ke valid jika API error agar tidak memblokir sepenuhnya
-        return ['is_plant' => true, 'reason' => ''];
+        return ['is_plant' => true, 'reason' => 'validation_skipped'];
     }
 
-    /**
-     * Diagnosa tanaman menggunakan gambar + konteks.
-     */
+    // ── DIAGNOSIS ─────────────────────────────────────────────────────────────
     public function diagnose(array $context, ?string $base64Image = null, string $mimeType = 'image/jpeg'): array
     {
+        // Cache diagnosis by image+crop hash (same image = same result)
+        $hash = $base64Image ? md5(substr($base64Image, 0, 500) . ($context['crop'] ?? '')) : null;
+        if ($hash && $cached = Cache::get("diag_{$hash}")) return $cached;
+
+        $result = null;
         if ($this->isLive()) {
-            $prompt = $this->buildDiagnosisPrompt($context);
-            $userContent = [];
-
+            $prompt  = $this->buildDiagnosisPrompt($context);
+            $content = [];
             if ($base64Image) {
-                $userContent[] = [
-                    'type' => 'image_url',
-                    'image_url' => ['url' => "data:{$mimeType};base64,{$base64Image}"],
-                ];
+                $content[] = ['type' => 'image_url', 'image_url' => ['url' => "data:{$mimeType};base64,{$base64Image}"]];
             }
-
-            $userContent[] = [
-                'type' => 'text',
-                'text' => $prompt,
-            ];
+            $content[] = ['type' => 'text', 'text' => $prompt];
 
             $messages = [
-                [
-                    'role' => 'system',
-                    'content' => 'Anda adalah ahli patologi tanaman AI untuk pertanian Indonesia. Analisa gambar dan data yang diberikan secara akurat. Jawab HANYA dalam format JSON valid tanpa markdown.',
-                ],
-                [
-                    'role' => 'user',
-                    'content' => $base64Image ? $userContent : $prompt,
-                ],
+                ['role' => 'system', 'content' => 'Anda pakar patologi tanaman Indonesia. Analisa gambar secara cermat. Jangan mengarang jika tidak ada bukti visual. Jawab HANYA JSON valid tanpa markdown.'],
+                ['role' => 'user',   'content' => $base64Image ? $content : $prompt],
             ];
 
-            $raw = $this->chat($messages, ['temperature' => 0.3]);
-            $clean = preg_replace('/```json|```/', '', $raw);
-            $parsed = json_decode(trim($clean), true);
-            if (is_array($parsed) && isset($parsed['disease'])) {
-                return $parsed;
+            $raw    = $this->chat($messages, ['temperature' => 0.2]);
+            $clean  = trim(preg_replace('/```json|```/', '', $raw));
+            $parsed = json_decode($clean, true);
+
+            if (is_array($parsed) && isset($parsed['disease'], $parsed['confidence'])) {
+                $result = $parsed;
             }
         }
-        return $this->mockDiagnosis($context);
+
+        if (!$result) $result = $this->mockDiagnosis($context);
+        if ($hash) Cache::put("diag_{$hash}", $result, 7200);
+
+        return $result;
     }
 
     protected function buildDiagnosisPrompt(array $c): string
     {
-        $soilInfo = $c['soil_condition'] ?? '-';
-        return "Diagnosa kondisi tanaman berdasarkan gambar dan data berikut:\n"
-            . "Jenis Tanaman: " . ($c['crop'] ?? '-') . "\n"
-            . "Umur Tanaman: " . ($c['age'] ?? '-') . " hari\n"
-            . "Lokasi: " . ($c['location'] ?? '-') . "\n"
-            . "Kondisi Tanah: " . $soilInfo . "\n"
-            . "Cuaca saat ini: " . ($c['weather'] ?? '-') . "\n"
-            . "Analisa gambar dengan teliti dan berikan diagnosa akurat.\n"
-            . "Berikan respons JSON dengan format tepat ini:\n"
-            . '{"disease":"nama penyakit atau kondisi","confidence":85,"risk_level":"Rendah|Sedang|Tinggi","description":"deskripsi detail","recommendations":["langkah 1","langkah 2","langkah 3"]}';
+        return "Analisa gambar tanaman dan diagnosa penyakit/kondisinya.\n"
+            . "Konteks: Tanaman=" . ($c['crop'] ?? '?') . ", Umur=" . ($c['age'] ?? '?') . " hari, Lokasi=" . ($c['location'] ?? '?') . ", Tanah=" . ($c['soil_condition'] ?? '?') . ", Cuaca=" . ($c['weather'] ?? '?') . "\n"
+            . "PENTING: Dasarkan diagnosis pada gejala visual yang benar-benar terlihat di gambar.\n"
+            . 'Format JSON: {"disease":"nama spesifik","confidence":75,"risk_level":"Rendah|Sedang|Tinggi","description":"deskripsi gejala visual","recommendations":["langkah1","langkah2","langkah3","langkah4"]}';
     }
 
-    /**
-     * Mock chat yang lebih cerdas - benar-benar menjawab pertanyaan tanpa reset ke sapaan.
-     */
+    // ── MOCK CHAT (deterministic, domain-guarded) ──────────────────────────────
     protected function mockChat(array $messages): string
     {
-        // Cari pesan user terakhir (bukan system)
-        $lastUserMsg = '';
-        foreach (array_reverse($messages) as $msg) {
-            if (($msg['role'] ?? '') === 'user') {
-                $lastUserMsg = is_array($msg['content']) ? ($msg['content'][0]['text'] ?? '') : ($msg['content'] ?? '');
+        $lastUser = '';
+        foreach (array_reverse($messages) as $m) {
+            if (($m['role'] ?? '') === 'user') {
+                $lastUser = is_array($m['content']) ? ($m['content'][0]['text'] ?? '') : ($m['content'] ?? '');
                 break;
             }
         }
 
-        $kw = mb_strtolower($lastUserMsg);
+        $kw      = mb_strtolower(trim($lastUser));
+        $userMsgs = array_filter($messages, fn($m) => ($m['role'] ?? '') === 'user');
+        $isFirst = count($userMsgs) <= 1;
 
-        // Deteksi apakah ini pesan pertama (hanya ada 1-2 pesan + system)
-        $nonSystemCount = count(array_filter($messages, fn($m) => ($m['role'] ?? '') !== 'system'));
-        $isFirstMessage = $nonSystemCount <= 1;
-
-        if ($isFirstMessage && (str_contains($kw, 'halo') || str_contains($kw, 'hai') || str_contains($kw, 'hello') || empty(trim($kw)))) {
-            return "Halo! Saya TaniAI, asisten pintar pertanian Anda. Saya siap membantu soal penyakit tanaman, pupuk, cuaca, atau strategi panen. Apa yang ingin Anda tanyakan?";
+        // Only greet on very first message if it's a greeting or empty
+        if ($isFirst && ($kw === '' || preg_match('/^(halo|hai|hello|hi|assalam|selamat|pagi|siang|sore|malam)/i', $kw))) {
+            return "Halo! Saya **TaniAI** 🌱, asisten pertanian AI Anda.\n\nSaya siap membantu seputar:\n- 🌿 Diagnosa penyakit & hama tanaman\n- 💊 Rekomendasi pupuk dan pestisida\n- 🌾 Teknik budidaya dan panen\n- 🌦️ Tips pertanian berdasarkan cuaca\n\nSilakan tanyakan apa saja seputar pertanian!";
         }
 
-        // Menanam/budidaya
-        if (str_contains($kw, 'cara menanam') || str_contains($kw, 'budidaya')) {
-            $crop = '';
-            foreach (['padi', 'jagung', 'cabai', 'tomat', 'kedelai', 'bawang', 'kentang', 'kopi', 'kakao'] as $c) {
-                if (str_contains($kw, $c)) { $crop = $c; break; }
+        // Non-agriculture domain guard
+        $nonAgriPatterns = ['/\b(html|css|javascript|python|java\b|php|kode program|coding|film|sinema|musik|lagu|olahraga|sepakbola|basket|politik|pemilu|game|video game|resep masak|kuliner)\b/i'];
+        foreach ($nonAgriPatterns as $p) {
+            if (preg_match($p, $kw)) {
+                return "Maaf, saya hanya dapat membantu seputar **pertanian dan agrikultur** 🌱.\n\nUntuk topik yang Anda tanyakan, saya tidak memiliki keahlian yang tepat.\n\nApakah ada pertanyaan tentang tanaman, pupuk, hama, cuaca pertanian, atau teknik budidaya yang bisa saya bantu?";
             }
-            $crop = $crop ?: 'tanaman';
-            return "Cara budidaya {$crop} yang baik:\n\n**1. Persiapan Lahan**\nOlah tanah sedalam 20-30 cm, beri pupuk dasar organik 2 ton/ha, dan pastikan drainase lancar.\n\n**2. Pemilihan Benih**\nGunakan benih unggul bersertifikat dengan daya kecambah minimal 80%.\n\n**3. Penanaman**\nTanam pada awal musim hujan atau saat kelembapan cukup. Jarak tanam sesuaikan dengan varietas.\n\n**4. Pemeliharaan**\n- Pemupukan: UREA fase vegetatif, NPK fase generatif\n- Pengairan: sesuai kebutuhan tanaman\n- Pengendalian OPT: pantau rutin setiap minggu\n\n**5. Panen**\nPanen saat tanaman menunjukkan tanda kematangan optimal.\n\nApakah Anda ingin informasi lebih detail tentang salah satu tahap?";
         }
 
-        // Hawar / penyakit daun
-        if (str_contains($kw, 'hawar') || (str_contains($kw, 'penyakit') && str_contains($kw, 'daun'))) {
-            return "Penanganan Hawar Daun:\n\n**Identifikasi:** Bercak coklat/kuning pada daun, meluas cepat dari tepi daun.\n\n**Langkah Cepat:**\n1. Kurangi genangan air di sekitar tanaman\n2. Aplikasikan fungisida berbahan aktif **Mancozeb 80WP** dosis 2 g/L atau **Propineb 70WP** dosis 1.5 g/L\n3. Semprotkan pada pagi hari (06.00-09.00) atau sore (15.00-17.00)\n4. Pangkas dan bakar bagian yang terinfeksi parah\n5. Ulangi aplikasi setiap 7-10 hari selama 3x\n\n**Pencegahan:** Pilih varietas tahan, atur jarak tanam, hindari pupuk N berlebihan.\n\nApakah ada pertanyaan lanjutan?";
+        // ── Pertanyaan spesifik ──
+        if (preg_match('/hawar|blb|bakteri.*daun|xanthomonas/i', $kw)) {
+            return "**Hawar Daun Bakteri (BLB) — Xanthomonas oryzae**\n\n**Gejala:** Bercak coklat-kelabu dari tepi daun, meluas ke tengah, daun akhirnya kering.\n\n**Pengendalian:**\n1. Semprot **Streptomisin Sulfat** atau **Tembaga Hidroksida** sesuai dosis\n2. Hindari genangan air di petakan sawah\n3. Gunakan varietas tahan: Inpari 13, Code, Ciherang\n4. Jangan berlebihan pupuk Nitrogen — memperparah infeksi\n5. Musnahkan sisa tanaman terinfeksi setelah panen\n\n**Pencegahan:** Benih sehat bersertifikat, rotasi varietas, jaga drainase.";
         }
 
-        // Wereng
-        if (str_contains($kw, 'wereng')) {
-            return "Penanganan Wereng pada Padi:\n\n**Gejala:** Tanaman menguning mendadak (hopperburn), batang bawah rusak.\n\n**Pengendalian:**\n1. **Semprot insektisida:** Imidakloprid 200SL (0.5 ml/L), Buprofezin 400SC, atau BPMC 500EC\n2. **Rotasi varietas:** Gunakan varietas tahan wereng (Ciherang, Inpari 13/30/33)\n3. **Musuh alami:** Jaga populasi laba-laba dan kepik dengan tidak terlalu banyak insektisida\n4. **Sanitasi:** Bersihkan gulma sebagai tempat berlindung wereng\n\n**Ambang ekonomi:** Semprot jika ada 10 ekor/rumpun pada fase vegetatif atau 20 ekor/rumpun pada fase generatif.";
+        if (preg_match('/blast|pyricularia/i', $kw)) {
+            return "**Penyakit Blast — Pyricularia oryzae**\n\n**Gejala:** Bercak belah ketupat coklat (tepi abu) pada daun; leher malai busuk = blast leher.\n\n**Pengendalian:**\n1. Fungisida **Trisiklazol 75WP** (0.5 g/L) atau **Isoprotiolan 40EC**\n2. Semprot 2x: awal anakan + menjelang berbunga\n3. Kurangi pupuk N menjelang fase generatif\n4. Varietas tahan: Inpari 32, Memberamo, Situbagendit\n\n**Kondisi berisiko:** Suhu 24–28°C, kelembapan >80%, embun pagi tinggi.";
         }
 
-        // Pupuk
-        if (str_contains($kw, 'pupuk') || str_contains($kw, 'urea') || str_contains($kw, 'npk')) {
-            return "Rekomendasi Pemupukan:\n\n**Padi (per hektar):**\n- Pupuk dasar: Organik 2 ton + SP36 100 kg\n- 14 HST: UREA 50 kg + ZA 50 kg\n- 28 HST: UREA 50 kg + NPK 16-16-16 100 kg\n- 45 HST: UREA 50 kg + KCl 50 kg\n\n**Cabai (per hektar):**\n- Dasar: Kompos 10 ton + Dolomit 500 kg\n- Vegetatif: NPK 15-15-15 setiap 2 minggu\n- Berbuah: Kalium tinggi (NPK 12-6-22)\n\n**Tips:** Pemupukan terbaik pagi setelah pengairan ringan, hindari saat terik matahari.\n\nUntuk rekomendasi lebih spesifik, sebutkan jenis tanaman dan umurnya.";
+        if (preg_match('/wereng|nilaparvata/i', $kw)) {
+            return "**Wereng Batang Padi**\n\n**Ambang ekonomi semprot:**\n- Vegetatif: ≥10 ekor/rumpun\n- Generatif: ≥20 ekor/rumpun\n\n**Pengendalian:**\n1. **Imidakloprid 200SL** 0.5 ml/L — semprot ke pangkal batang\n2. **Buprofezin 25WP** 2 g/L untuk wereng stadium nimfa\n3. Jaga populasi laba-laba & kepik sebagai musuh alami\n4. Varietas tahan: Inpari 13, 30, 33, 38\n\n⚠️ **Hindari piretroid** — menyebabkan resurjensi wereng!";
         }
 
-        // Cuaca/hujan
-        if (str_contains($kw, 'cuaca') || str_contains($kw, 'hujan')) {
-            return "Tips Pertanian Saat Musim Hujan:\n\n1. **Drainase:** Buat saluran drainase yang baik agar air tidak menggenang\n2. **Penyakit:** Tingkatkan kewaspadaan terhadap jamur dan bakteri, semprotkan fungisida preventif\n3. **Pemupukan:** Tunda pemupukan daun saat hujan lebat, gunakan pupuk granul terkubur\n4. **Panen:** Percepat panen jika sudah masak untuk menghindari kerusakan\n5. **Mulsa:** Pasang mulsa plastik untuk kurangi percikan tanah ke daun\n\nUntuk info cuaca real-time di lokasi Anda, cek menu Cuaca & Peringatan di aplikasi ini.";
+        if (preg_match('/antraknosa|patek|cabai busuk|colletotrichum/i', $kw)) {
+            return "**Antraknosa / Patek Cabai — Colletotrichum sp.**\n\n**Gejala:** Bercak cekung hitam pada buah, meluas, buah rontok.\n\n**Pengendalian:**\n1. Fungisida **Mankozeb 80WP** 2 g/L atau **Propineb 70WP** 2 g/L\n2. Semprot 7–10 hari sekali, terutama saat buah mulai terbentuk\n3. Panen buah sebelum terlalu masak (80% merah)\n4. Bersihkan buah gugur dari lahan\n5. Gunakan mulsa untuk cegah percik tanah ke buah\n\n**Musim hujan:** Frekuensi semprot lebih sering (5–7 hari).";
         }
 
-        // Hama
-        if (str_contains($kw, 'hama') || str_contains($kw, 'ulat') || str_contains($kw, 'kutu')) {
-            return "Pengendalian Hama Terpadu (PHT):\n\n**Prinsip PHT:**\n1. Pantau kondisi tanaman 2x seminggu\n2. Identifikasi hama dan musuh alami\n3. Terapkan pengendalian hanya jika melampaui ambang ekonomi\n\n**Metode Pengendalian:**\n- **Mekanis:** Tangkap manual, pasang perangkap feromon/kuning\n- **Biologis:** Gunakan Trichoderma sp., Bacillus thuringiensis\n- **Kimia:** Terakhir jika metode lain tidak efektif\n\n**Sebutkan hama spesifik** yang Anda hadapi untuk rekomendasi lebih tepat.";
+        if (preg_match('/cara menanam|budidaya|teknik tanam/i', $kw)) {
+            $t = '';
+            foreach (['padi','jagung','cabai','tomat','kedelai','bawang merah','kentang','kopi','kakao','singkong','ubi jalar'] as $crop) {
+                if (str_contains($kw, $crop)) { $t = $crop; break; }
+            }
+            $t = $t ?: 'tanaman';
+            return "**Panduan Budidaya " . ucfirst($t) . "**\n\n**1. Persiapan Lahan**\nOlah tanah 20–30 cm, pH optimal 5.5–6.8, pupuk dasar organik 2 ton/ha.\n\n**2. Benih/Bibit**\nGunakan benih bersertifikat, daya kecambah ≥80%, bebas penyakit.\n\n**3. Penanaman**\nAwal musim hujan. Jarak tanam sesuai varietas.\n\n**4. Pemeliharaan**\n- Pupuk: Urea (vegetatif) → NPK (generatif)\n- Pengairan: sesuaikan fase tumbuh\n- PHT: pantau hama/penyakit 2x/minggu\n\n**5. Panen**\nSaat indikator kematangan optimal tercapai.\n\n📖 Detail lengkap tersedia di menu **Panduan Budidaya**.";
         }
 
-        // Panen
-        if (str_contains($kw, 'panen') || str_contains($kw, 'harvest')) {
-            return "Panduan Panen Optimal:\n\n**Indikator Siap Panen:**\n- **Padi:** 85-90% gabah menguning, kadar air ±24%\n- **Jagung:** Rambut coklat kering, biji keras\n- **Cabai:** Warna sesuai varietas (merah/kuning), tekstur padat\n- **Tomat:** Warna merah merata, sedikit lunak\n\n**Tips Panen:**\n1. Panen pagi atau sore hari\n2. Gunakan alat bersih untuk cegah kontaminasi\n3. Simpan di tempat teduh, hindari langsung sinar matahari\n4. Sortir segera untuk pisahkan yang rusak\n\nSebutkan tanaman spesifik untuk rekomendasi lebih detail.";
+        if (preg_match('/pupuk|urea|npk|sp-?36|kcl|za\b|dolomit|phonska/i', $kw)) {
+            return "**Rekomendasi Pemupukan Padi Sawah (per hektar)**\n\n| Waktu | Pupuk | Dosis |\n|-------|-------|-------|\n| Dasar | Organik + SP36 + KCl | 2 ton + 100 kg + 50 kg |\n| 10–14 HST | Urea + ZA | 50 + 50 kg |\n| 28 HST | Urea + NPK Phonska | 50 + 150 kg |\n| 42 HST | Urea | 50 kg |\n\n**Cabai (per hektar):**\n- Dasar: Kompos 10 ton + Dolomit 500 kg\n- Vegetatif: NPK 16-16-16 tiap 2 minggu\n- Berbuah: NPK 12-6-22 atau KNO₃\n\n**Tips:** Pupuk pagi hari, setelah tanah lembap. pH <5.5 → kapur dulu.";
         }
 
-        // Default - menjawab pertanyaan umum pertanian
-        return "Terima kasih atas pertanyaan Anda tentang \"" . \Illuminate\Support\Str::limit($lastUserMsg, 60) . "\".\n\nSaya akan mencoba membantu. Untuk jawaban yang lebih akurat, bisa Anda jelaskan lebih detail:\n- Jenis tanaman yang Anda budidayakan\n- Gejala atau masalah yang terlihat\n- Lokasi dan kondisi cuaca\n\nAnda juga bisa menggunakan fitur **Diagnosa Tanaman** untuk analisa gambar langsung dari tanaman Anda.";
+        if (preg_match('/panen|harvest|siap panen|kapan panen/i', $kw)) {
+            return "**Panduan Panen**\n\n| Komoditas | Umur | Indikator |\n|-----------|------|-----------|\n| Padi | 100–120 HST | 85–90% gabah kuning, kadar air ~24% |\n| Jagung | 90–105 HST | Rambut coklat kering, biji keras |\n| Cabai | 70–90 HST | 70–80% merah, tekstur padat |\n| Tomat | 70–80 HST | Merah merata, sedikit lunak |\n| Kedelai | 85–95 HST | 90% polong kuning-coklat |\n\n**Pascapanen:** Panen pagi/sore → sortasi → simpan kadar air aman.";
+        }
+
+        if (preg_match('/hama|ulat|kutu|thrips|lalat|penggerek/i', $kw)) {
+            return "**Pengendalian Hama Terpadu (PHT)**\n\n**Urutan pengendalian:**\n1. **Mekanis** — ambil manual, perangkap feromon/kuning\n2. **Biologis** — Trichoderma, Bacillus thuringiensis, musuh alami\n3. **Kimia** — pilihan terakhir saat melebihi ambang ekonomi\n\n**Ambang ekonomi umum:**\n- Ulat grayak padi: 25% rumpun terserang\n- Penggerek batang: 5% anakan mati (sundep)\n- Thrips cabai: 1–2 ekor/daun muda\n\nSebutkan **hama dan tanaman spesifik** untuk rekomendasi lebih tepat!";
+        }
+
+        if (preg_match('/cuaca|hujan|kering|musim|iklim/i', $kw)) {
+            return "**Tips Pertanian Berdasarkan Cuaca**\n\n**Musim Hujan:**\n- Perbaiki drainase, cegah genangan\n- Waspada penyakit jamur & bakteri — semprot fungisida preventif\n- Tunda pemupukan daun saat hujan lebat\n- Percepat panen komoditas yang sudah matang\n\n**Musim Kemarau:**\n- Irigasi berselang untuk padi (hemat air)\n- Mulsa organik jaga kelembapan sayuran\n- Waspada wereng & thrips (berkembang di kondisi kering)\n- Tanam varietas tahan kering\n\n📍 Cek **Cuaca & Peringatan** untuk data real-time lokasi Anda.";
+        }
+
+        // Generic fallback — always relevant, never empty
+        return "Terima kasih atas pertanyaan tentang **\"" . \Illuminate\Support\Str::limit($lastUser, 60) . "\"**.\n\nUntuk menjawab lebih akurat, mohon tambahkan:\n- 🌿 **Jenis tanaman** yang dibudidayakan\n- 📍 **Lokasi/daerah** Anda\n- 🔍 **Gejala spesifik** yang terlihat (warna, tekstur, bagian yang terkena)\n- 🗓️ **Umur tanaman** (berapa hari/bulan)\n\nAlternatif: gunakan fitur **Diagnosa Tanaman** untuk analisa langsung dari foto tanaman Anda.";
     }
 
+    // ── MOCK DIAGNOSIS (deterministic per crop) ────────────────────────────────
     protected function mockDiagnosis(array $c): array
     {
-        $cropDiseases = [
-            'Padi'         => [['Hawar Daun Bakteri (BLB)', 'Tinggi'], ['Blast Leher', 'Tinggi'], ['Bercak Coklat', 'Sedang']],
-            'Jagung'       => [['Bulai Jagung', 'Tinggi'], ['Hawar Daun Turcicum', 'Sedang'], ['Karat Daun', 'Rendah']],
-            'Cabai'        => [['Antraknosa (Patek)', 'Tinggi'], ['Layu Fusarium', 'Tinggi'], ['Bercak Daun Cercospora', 'Sedang']],
-            'Tomat'        => [['Early Blight', 'Sedang'], ['Late Blight', 'Tinggi'], ['Layu Bakteri', 'Tinggi']],
-            'Kedelai'      => [['Karat Kedelai', 'Sedang'], ['Pustul Bakteri', 'Rendah'], ['Downy Mildew', 'Sedang']],
-            'Bawang Merah' => [['Moler/Fusarium', 'Tinggi'], ['Bercak Ungu', 'Sedang'], ['Embun Tepung', 'Rendah']],
-            'Kentang'      => [['Hawar Daun (P. infestans)', 'Tinggi'], ['Layu Bakteri', 'Tinggi'], ['Scab', 'Rendah']],
+        $map = [
+            'Padi'         => ['Hawar Daun Bakteri (BLB)', 'Tinggi', 78, 'Gejala khas BLB: bercak coklat-kelabu dari tepi daun meluas ke tengah. Umum pada kondisi lembap dan genangan air.'],
+            'Jagung'       => ['Hawar Daun Turcicum', 'Sedang', 74, 'Bercak memanjang abu-coklat pada daun, khas Exserohilum turcicum. Berkembang saat cuaca lembap.'],
+            'Cabai'        => ['Antraknosa (Patek)', 'Tinggi', 82, 'Bercak cekung hitam pada buah cabai, khas Colletotrichum sp. Intensif di musim hujan.'],
+            'Tomat'        => ['Early Blight (Alternaria)', 'Sedang', 73, 'Bercak coklat konsentris pada daun tua — khas Alternaria solani. Menyebar dari bawah ke atas.'],
+            'Kedelai'      => ['Karat Kedelai', 'Sedang', 72, 'Pustula coklat-oranye pada permukaan bawah daun, khas Phakopsora pachyrhizi.'],
+            'Bawang Merah' => ['Bercak Ungu (Alternaria porri)', 'Sedang', 76, 'Bercak ungu-coklat memanjang pada daun, khas Alternaria porri. Aktif di musim hujan.'],
+            'Kentang'      => ['Late Blight (Phytophthora)', 'Tinggi', 84, 'Bercak basah tepi putih pada daun — khas Phytophthora infestans. Sangat destruktif, segera tangani.'],
+            'Kopi'         => ['Karat Daun Kopi (HV)', 'Sedang', 75, 'Pustula oranye pada permukaan bawah daun — khas Hemileia vastatrix. Umum pada kopi Arabika.'],
+            'Kakao'        => ['Busuk Buah (Phytophthora)', 'Tinggi', 80, 'Bercak hitam pada buah kakao, berkembang cepat di musim hujan. Khas Phytophthora palmivora.'],
         ];
 
-        $crop = $c['crop'] ?? 'Umum';
-        $diseases = $cropDiseases[$crop] ?? [['Hawar Daun', 'Sedang'], ['Bercak Daun', 'Rendah'], ['Busuk Akar', 'Tinggi']];
-        $pick = $diseases[array_rand($diseases)];
-        $confidence = rand(72, 89);
+        $crop   = $c['crop'] ?? 'Padi';
+        $data   = $map[$crop] ?? ['Hawar Daun', 'Sedang', 70, 'Gejala hawar daun terdeteksi. Lakukan identifikasi lebih lanjut untuk penanganan spesifik.'];
 
         return [
-            'disease'         => $pick[0],
-            'confidence'      => $confidence,
-            'risk_level'      => $pick[1],
-            'description'     => "Terdeteksi kemungkinan {$pick[0]} pada tanaman {$crop}. Penyakit ini umum terjadi pada kondisi kelembapan tinggi dan sirkulasi udara kurang baik. Segera lakukan penanganan untuk mencegah penyebaran.",
+            'disease'         => $data[0],
+            'risk_level'      => $data[1],
+            'confidence'      => $data[2],
+            'description'     => $data[3],
             'recommendations' => [
-                'Periksa seluruh tanaman di sekitar dan isolasi yang terinfeksi parah',
-                'Gunakan fungisida/bakterisida yang sesuai sesuai jenis penyakit',
-                'Lakukan penyemprotan pagi hari (06.00-09.00) atau sore (15.00-17.00)',
+                'Isolasi dan singkirkan bagian tanaman yang terinfeksi berat',
+                'Gunakan fungisida/bakterisida sesuai jenis penyakit yang teridentifikasi',
+                'Semprot pagi (06:00–09:00) atau sore (15:00–17:00) — hindari tengah hari',
                 'Perbaiki drainase lahan dan kurangi kelembapan berlebih',
-                'Pantau ulang kondisi tanaman dalam 3-5 hari',
+                'Pantau ulang 5–7 hari setelah penanganan — ulangi jika diperlukan',
             ],
         ];
     }

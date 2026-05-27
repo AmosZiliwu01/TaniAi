@@ -2,14 +2,10 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Comment extends Model
 {
-    use HasFactory;
-
-    protected $table   = 'comments';
     protected $guarded = ['id'];
 
     public function user()
@@ -22,13 +18,8 @@ class Comment extends Model
         return $this->belongsTo(CommunityPost::class, 'community_post_id');
     }
 
-    public function parent()
-    {
-        return $this->belongsTo(Comment::class, 'parent_id');
-    }
-
     public function replies()
     {
-        return $this->hasMany(Comment::class, 'parent_id');
+        return $this->hasMany(Comment::class, 'parent_id')->with('user');
     }
 }

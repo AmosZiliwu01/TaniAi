@@ -1,54 +1,31 @@
 import '../css/app.css';
-
 import Alpine from 'alpinejs';
 import { createIcons, icons } from 'lucide';
 
 window.Alpine = Alpine;
 
-/**
- * Render Lucide icons safely (NO LOOP, NO OBSERVER)
- */
-window.renderIcons = function () {
-    createIcons({ icons });
+// ── Icon rendering ─────────────────────────────────────────────────────────────
+let iconTimer = null;
+window.renderIcons = () => createIcons({ icons });
+window.renderIconsDebounced = () => {
+    clearTimeout(iconTimer);
+    iconTimer = setTimeout(() => window.renderIcons(), 60);
 };
 
-/**
- * Alpine Store
- */
+// ── Alpine global store ────────────────────────────────────────────────────────
 document.addEventListener('alpine:init', () => {
     Alpine.store('ui', {
         sidebarOpen: false,
-
-        dark: localStorage.getItem('taniai-dark') === '1',
-
-        toggleDark() {
-            this.dark = !this.dark;
-
-            localStorage.setItem('taniai-dark', this.dark ? '1' : '0');
-
-            document.documentElement.classList.toggle('dark', this.dark);
-
-            // re-render icons after theme change
-            setTimeout(() => window.renderIcons(), 50);
-        },
     });
 });
 
-/**
- * Start Alpine
- */
 Alpine.start();
 
-/**
- * Render icons once after page load
- */
+// ── Boot ───────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     window.renderIcons();
-});
 
-/**
- * Apply dark mode immediately before render
- */
-if (localStorage.getItem('taniai-dark') === '1') {
-    document.documentElement.classList.add('dark');
-}
+    // Re-render icons when DOM changes (modals, x-show transitions)
+    const obs = new MutationObserver(() => window.renderIconsDebounced());
+    obs.observe(document.body, { childList: true, subtree: true });
+});

@@ -10,9 +10,26 @@ class AdminMiddleware
 {
     public function handle(Request $request, Closure $next)
     {
-        if (!Auth::check() || !Auth::user()->isAdmin()) {
-            abort(403, 'Akses ditolak. Halaman ini hanya untuk admin.');
+        if (!Auth::check()) {
+            return redirect()->route('login');
         }
+
+        $user = Auth::user();
+
+        // Banned users get force-logged out everywhere
+        if ($user->role === 'banned') {
+            Auth::logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+            return redirect()->route('login')->withErrors([
+                'email' => 'Akun Anda telah diblokir. Hubungi administrator.',
+            ]);
+        }
+
+        if (!$user->isAdmin()) {
+            abort(403, 'Akses ditolak.');
+        }
+
         return $next($request);
     }
 }

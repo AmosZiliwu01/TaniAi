@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Diagnosis;
-use App\Services\GrokAIService;
+use App\Services\LlamaAIService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
@@ -22,52 +22,78 @@ class DiagnosisController extends Controller
         return view('diagnosis.index', compact('history'));
     }
 
-    public function analyze(Request $request, GrokAIService $ai)
+    public function analyze(Request $request, LlamaAIService $ai)
     {
         $data = $request->validate([
             'crop'           => 'required|string|max:100',
-            'age'            => 'nullable|integer|min:0',
-            'location'       => 'nullable|string|max:255',
-            'soil_condition' => 'nullable|string',
-            'weather'        => 'nullable|string',
-            'image'          => 'nullable|image|max:5120',
+            'age'            => 'nullable|integer|min:0|max:9999',
+            'soil_condition' => 'nullable|string|max:50',
+            'weather'        => 'nullable|string|max:50',
+            'image'          => 'required|image|mimes:jpg,jpeg,png,webp|max:8192',
         ]);
 
-        $imagePath   = null;
-        $base64Image = null;
-        $mimeType    = 'image/jpeg';
-
-        if ($request->hasFile('image')) {
-            $file     = $request->file('image');
-            $mimeType = $file->getMimeType() ?? 'image/jpeg';
-            $base64Image = base64_encode(file_get_contents($file->getRealPath()));
-
-            // Validasi apakah gambar adalah tanaman
-            $validation = $ai->validatePlantImage($base64Image, $mimeType);
-            if (!$validation['is_plant']) {
-                return back()->withErrors([
-                    'image' => 'Gambar yang diupload bukan gambar tanaman. Silakan upload foto daun, batang, buah, atau bagian tanaman yang ingin didiagnosa.',
-                ])->withInput();
-            }
-
-            $imagePath = $file->store('diagnoses', 'public');
+        if (!$request->hasFile('image')) {
+            return back()->withErrors(['image' => 'Foto tanaman wajib diupload untuk diagnosa.'])->withInput();
         }
 
-        $result = $ai->diagnose($data, $base64Image, $mimeType);
+        $file        = $request->file('image');
+        $mime        = $file->getMimeType() ?? 'image/jpeg';
+        $rawBytes    = file_get_contents($file->getRealPath());
+        $base64      = base64_encode($rawBytes);
+        $imgHash     = md5($rawBytes);
+
+        // Check duplicate image
+        $existing = Diagnosis::where('user_id', Auth::id())
+            ->where('image_hash', $imgHash)
+            ->where('crop', $data['crop'])
+            ->latest()
+            ->first();
+
+        if ($existing) {
+            return redirect()->route('diagnosis.index')
+                ->with('flash_diagnosis_id', $existing->id)
+                ->with('status', 'Gambar ini sudah pernah didiagnosa — menampilkan hasil sebelumnya.');
+        }
+
+        // Validate: is it a plant image?
+        $validation = $ai->validatePlantImage($base64, $mime);
+        if (!($validation['is_plant'] ?? true)) {
+            return back()->withErrors([
+                'image' => 'Gambar yang diupload tidak terdeteksi sebagai tanaman atau bagian tanaman. Silakan upload foto daun, batang, buah, atau tanaman yang bermasalah.',
+            ])->withInput();
+        }
+
+        // Store image
+        $imagePath = $file->store('diagnoses', 'public');
+
+        // Add location from user profile
+        $data['location'] = Auth::user()->location ?? '';
+
+        // Run AI diagnosis
+        $result = $ai->diagnose($data, $base64, $mime);
 
         $diag = Diagnosis::create([
             'user_id'         => Auth::id(),
             'crop'            => $data['crop'],
             'image_path'      => $imagePath,
+            'image_hash'      => $imgHash,
+            'soil_condition'  => $data['soil_condition'] ?? null,
             'disease'         => $result['disease'],
             'confidence'      => $result['confidence'],
             'risk_level'      => $result['risk_level'],
+            'plant_part'      => $result['plant_part'] ?? null,
             'description'     => $result['description'],
-            'recommendations' => $result['recommendations'],
+            'causes'          => $result['causes'] ?? [],
+            'solutions'       => $result['solutions'] ?? $result['recommendations'] ?? [],
+            'prevention'      => $result['prevention'] ?? [],
+            'health_status'   => $result['health_status'] ?? null,
+            'recommendations' => $result['recommendations'] ?? [],
             'status'          => 'done',
         ]);
 
-        return redirect()->route('diagnosis.show', $diag);
+        // Return to index with result flash
+        return redirect()->route('diagnosis.index')
+            ->with('flash_diagnosis_id', $diag->id);
     }
 
     public function show(Diagnosis $diagnosis)
@@ -83,6 +109,10 @@ class DiagnosisController extends Controller
             Storage::disk('public')->delete($diagnosis->image_path);
         }
         $diagnosis->delete();
+
+        if (request()->ajax()) {
+            return response()->json(['ok' => true]);
+        }
         return back()->with('status', 'Riwayat diagnosa dihapus.');
     }
 }
